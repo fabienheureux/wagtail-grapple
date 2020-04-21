@@ -25,6 +25,7 @@ def create_schema():
     from .types.images import ImagesQuery
     from .types.media import MediaQuery
     from .types.pages import PagesQuery, has_channels
+    from .types.collections import CollectionsQuery
     from .types.search import SearchQuery
     from .types.settings import SettingsQuery
     from .types.snippets import SnippetsQuery
@@ -34,6 +35,7 @@ def create_schema():
         graphene.ObjectType,
         PagesQuery(),
         ImagesQuery(),
+        CollectionsQuery(),
         DocumentsQuery(),
         MediaQuery(),
         SnippetsQuery(),
