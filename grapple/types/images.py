@@ -83,6 +83,7 @@ class ImageObjectType(DjangoObjectType, BaseImageObjectType):
         jpegquality=graphene.Int(),
     )
     src_set = graphene.String(sizes=graphene.List(graphene.Int))
+    tags = graphene.List(graphene.String))
 
     class Meta:
         model = WagtailImage
@@ -126,6 +127,16 @@ class ImageObjectType(DjangoObjectType, BaseImageObjectType):
             pass
 
         return ""
+
+    def resolve_tags(self, info, **kwargs):
+        """
+        Generate list of tags
+        """
+        try:
+            if self.tags.all().count > 0:
+                self.tags.all().join(", ")
+        except:
+            return list()
 
 
 def get_image_type():
