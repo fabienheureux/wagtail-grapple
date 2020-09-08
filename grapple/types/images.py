@@ -1,9 +1,5 @@
-import os
-import codecs
-import urllib.parse
 import graphene
 
-from django.conf import settings
 from graphene_django import DjangoObjectType
 from wagtail.images import get_image_model
 from wagtail.images.models import (
@@ -12,36 +8,34 @@ from wagtail.images.models import (
 )
 
 from ..registry import registry
-from ..utils import resolve_queryset
+from ..utils import resolve_queryset, get_media_item_url
 from .structures import QuerySetList
 from .collections import CollectionObjectType
 
 
-def get_image_url(cls):
-    url = ""
-    if hasattr(cls, "url"):
-        url = cls.url
-    else:
-        url = cls.file.url
-
-    if url[0] == "/":
-        return settings.BASE_URL + url
-    return url
-
-
 class BaseImageObjectType(graphene.ObjectType):
-    width = graphene.Int()
-    height = graphene.Int()
     src = graphene.String()
     aspect_ratio = graphene.Float()
     sizes = graphene.String()
+    width = graphene.Int(required=True)
+    height = graphene.Int(required=True)
+    src = graphene.String(required=True, deprecation_reason="Use the `url` attribute")
+    url = graphene.String(required=True)
+    aspect_ratio = graphene.Float(required=True)
+    sizes = graphene.String(required=True)
     collection = graphene.Field(lambda: CollectionObjectType)
+
+    def resolve_url(self, info):
+        """
+        Get the uploaded image url.
+        """
+        return get_media_item_url(self)
 
     def resolve_src(self, info):
         """
-        Get url of the original uploaded image.
+        Deprecated. Use the `url` attribute.
         """
-        return get_image_url(self)
+        return get_media_item_url(self)
 
     def resolve_aspect_ratio(self, info, **kwargs):
         """
@@ -121,7 +115,10 @@ class ImageObjectType(DjangoObjectType, BaseImageObjectType):
                 ]
 
                 return ", ".join(
-                    [f"{get_image_url(img)} {img.width}w" for img in rendition_list]
+                    [
+                        f"{get_media_item_url(img)} {img.width}w"
+                        for img in rendition_list
+                    ]
                 )
         except:
             pass

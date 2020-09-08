@@ -11,7 +11,13 @@ from wagtail.core.rich_text import RichText
 from wagtail.embeds.blocks import EmbedValue
 
 from example.tests.test_grapple import BaseGrappleTest
-from home.blocks import ImageGalleryImage, ImageGalleryImages, VideoBlock, CarouselBlock
+from home.blocks import (
+    ButtonBlock,
+    ImageGalleryImage,
+    ImageGalleryImages,
+    VideoBlock,
+    CarouselBlock,
+)
 from home.factories import (
     BlogPageFactory,
     BlogPageRelatedLinkFactory,
@@ -69,6 +75,18 @@ class BlogTest(BaseGrappleTest):
                 ("callout", {"text": RichText("<p>Hello, World</p>")}),
                 ("objectives", ["Read all of article!"]),
                 ("video", {"youtube_link": EmbedValue("https://youtube.com/")}),
+                (
+                    "text_and_buttons",
+                    {
+                        "text": "Button text",
+                        "buttons": [
+                            {
+                                "button_text": "btn",
+                                "button_link": "https://www.graphql.com/",
+                            }
+                        ],
+                    },
+                ),
             ]
         )
 
@@ -426,3 +444,110 @@ class BlogTest(BaseGrappleTest):
         self.assertEqual(len(links), 5)
         for url in links:
             self.assertTrue(isinstance(url, str))
+
+    def test_blog_page_paginated_authors(self):
+        page = 1
+        per_page = 5
+
+        def query():
+            return """
+        {
+            page(id:%s) {
+                ... on BlogPage {
+                    paginatedAuthors(page:%s, perPage:%s) {
+                        items {
+                            role
+                            person {
+                                name
+                                job
+                            }
+                        }
+                        pagination {
+                            total
+                            count
+                            perPage
+                            currentPage
+                            prevPage
+                            nextPage
+                            totalPages
+                        }
+                    }
+                }
+            }
+        }
+        """ % (
+                self.blog_page.id,
+                page,
+                per_page,
+            )
+
+        executed = self.client.execute(query())
+
+        authors = executed["data"]["page"]["paginatedAuthors"]["items"]
+        pagination = executed["data"]["page"]["paginatedAuthors"]["pagination"]
+        self.assertEqual(len(authors), 5)
+        for author in authors:
+            self.assertTrue(isinstance(author["role"], str))
+            self.assertTrue(isinstance(author["person"]["name"], str))
+            self.assertTrue(isinstance(author["person"]["job"], str))
+        self.assertTrue(isinstance(pagination["total"], int))
+        self.assertTrue(isinstance(pagination["count"], int))
+        self.assertTrue(isinstance(pagination["perPage"], int))
+        self.assertTrue(isinstance(pagination["currentPage"], int))
+        self.assertTrue(pagination["prevPage"] is None)
+        self.assertTrue(isinstance(pagination["nextPage"], int))
+        self.assertTrue(isinstance(pagination["totalPages"], int))
+        self.assertEquals(pagination["total"], 8)
+        self.assertEquals(pagination["count"], 5)
+        self.assertEquals(pagination["perPage"], per_page)
+        self.assertEquals(pagination["currentPage"], page)
+        self.assertEquals(pagination["prevPage"], None)
+        self.assertEquals(pagination["nextPage"], 2)
+        self.assertEquals(pagination["totalPages"], 2)
+
+        page = 2
+        executed = self.client.execute(query())
+
+        authors = executed["data"]["page"]["paginatedAuthors"]["items"]
+        pagination = executed["data"]["page"]["paginatedAuthors"]["pagination"]
+        self.assertEqual(len(authors), 3)
+        for author in authors:
+            self.assertTrue(isinstance(author["role"], str))
+            self.assertTrue(isinstance(author["person"]["name"], str))
+            self.assertTrue(isinstance(author["person"]["job"], str))
+        self.assertTrue(isinstance(pagination["total"], int))
+        self.assertTrue(isinstance(pagination["count"], int))
+        self.assertTrue(isinstance(pagination["perPage"], int))
+        self.assertTrue(isinstance(pagination["currentPage"], int))
+        self.assertTrue(isinstance(pagination["prevPage"], int))
+        self.assertTrue(pagination["nextPage"] is None)
+        self.assertTrue(isinstance(pagination["totalPages"], int))
+        self.assertEquals(pagination["total"], 8)
+        self.assertEquals(pagination["count"], 3)
+        self.assertEquals(pagination["perPage"], per_page)
+        self.assertEquals(pagination["currentPage"], page)
+        self.assertEquals(pagination["prevPage"], 1)
+        self.assertEquals(pagination["nextPage"], None)
+        self.assertEquals(pagination["totalPages"], 2)
+
+    def test_structvalue_block(self):
+        # Query stream block
+        block_type = "TextAndButtonsBlock"
+        query_blocks = self.get_blocks_from_body(
+            block_type,
+            block_query="""
+                buttons {
+                    ... on ButtonBlock {
+                        buttonText
+                        buttonLink
+                    }
+               }
+            """,
+        )
+
+        # Check HTML is string
+        for block in self.blog_page.body:
+            if type(block.block).__name__ == block_type:
+                buttons = query_blocks[0]["buttons"]
+                self.assertEquals(buttons[0]["buttonText"], "btn")
+                self.assertEquals(buttons[0]["buttonLink"], "https://www.graphql.com/")

@@ -11,7 +11,7 @@ else:
     from wagtail.documents import get_document_model
 
 from ..registry import registry
-from ..utils import resolve_queryset
+from ..utils import get_media_item_url, resolve_queryset
 from .structures import QuerySetList
 
 
@@ -31,6 +31,13 @@ class DocumentObjectType(DjangoObjectType):
     created_at = graphene.DateTime(required=True)
     file_size = graphene.Int()
     file_hash = graphene.String()
+    url = graphene.String(required=True)
+
+    def resolve_url(self, info):
+        """
+        Get document file url.
+        """
+        return get_media_item_url(self)
 
 
 def DocumentsQuery():

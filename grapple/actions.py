@@ -5,26 +5,27 @@ from types import MethodType
 from collections.abc import Iterable
 
 from django.db import models
-from django.db.models.query import QuerySet
 from django.conf import settings
-from django.contrib.contenttypes.models import ContentType
 from django.template.loader import render_to_string
+
+from graphene_django.types import DjangoObjectType
+from wagtailmedia.models import AbstractMedia
+
 from wagtail.contrib.settings.models import BaseSetting
 from wagtail.core.models import Page as WagtailPage
-from wagtail.core.blocks import BaseBlock, RichTextBlock, stream_block
 from wagtail.core.rich_text import RichText, expand_db_html
+from wagtail.core.blocks import BaseBlock, RichTextBlock, stream_block, StructValue
 from wagtail.documents.models import AbstractDocument
 from wagtail.images.models import AbstractImage, AbstractRendition
 from wagtail.images.blocks import ImageChooserBlock
 from wagtail.snippets.models import get_snippet_models
-from graphene_django.types import DjangoObjectType
-
 
 from .registry import registry
-from .types.pages import PageInterface, Page
 from .types.documents import DocumentObjectType
-from .types.streamfield import generate_streamfield_union
 from .types.images import ImageObjectType
+from .types.media import MediaObjectType
+from .types.pages import PageInterface, Page
+from .types.streamfield import generate_streamfield_union
 from .helpers import streamfield_types
 
 
@@ -93,6 +94,8 @@ def register_model(cls: type, type_prefix: str):
             register_image_model(cls, type_prefix)
         elif issubclass(cls, AbstractRendition):
             register_image_model(cls, type_prefix)
+        elif issubclass(cls, AbstractMedia):
+            register_media_model(cls, AbstractMedia)
         elif issubclass(cls, BaseSetting):
             register_settings_model(cls, type_prefix)
         elif cls in get_snippet_models():
@@ -278,23 +281,32 @@ def convert_to_underscore(name):
     return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
 
 
+def get_field_value(instance, field_name: str):
+    """
+    Returns the value of a given field on an object of a StreamField.
+
+    Different types of objects require different ways to access the values.
+    """
+    if isinstance(instance, StructValue):
+        return instance[field_name]
+    elif isinstance(instance.value, RichText):
+        # Allow custom markup for RichText
+        return render_to_string(
+            "wagtailcore/richtext.html", {"html": expand_db_html(instance.value.source)}
+        )
+    elif isinstance(instance.value, stream_block.StreamValue):
+        stream_data = dict(instance.value.stream_data)
+        return stream_data[field_name]
+    else:
+        return instance.value[field_name]
+
+
 def streamfield_resolver(self, instance, info, **kwargs):
     value = None
     if hasattr(instance, "block"):
         field_name = convert_to_underscore(info.field_name)
         block = instance.block.child_blocks[field_name]
-
-        if isinstance(instance.value, stream_block.StreamValue):
-            stream_data = dict(instance.value.stream_data)
-            value = stream_data[field_name]
-        else:
-            value = instance.value[field_name]
-
-        # Allow custom markup for RichText
-        if isinstance(value, RichText):
-            value = render_to_string(
-                "wagtailcore/richtext.html", {"html": expand_db_html(value.source)}
-            )
+        value = get_field_value(instance, field_name)
 
         if not block or not value:
             return None
@@ -424,6 +436,25 @@ def register_image_rendition_model(cls: Type[AbstractRendition], type_prefix: st
     # Add image type to registry.
     if image_node_type:
         registry.images[cls] = image_node_type
+
+
+def register_media_model(cls: Type[AbstractMedia], type_prefix: str):
+    """
+    Create graphene node type for a model than inherits from AbstractDocument.
+    Only one model will actually be generated because a default document model
+    needs to be set in settings.
+    """
+
+    # Avoid gql type duplicates
+    if cls in registry.media:
+        return
+
+    # Create a GQL type derived from media model.
+    media_node_type = build_node_type(cls, type_prefix, None, MediaObjectType)
+
+    # Add media type to registry.
+    if media_node_type:
+        registry.media[cls] = media_node_type
 
 
 def register_settings_model(cls: Type[BaseSetting], type_prefix: str):

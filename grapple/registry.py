@@ -10,6 +10,7 @@ class Registry:
     documents = RegistryItem()
     images = RegistryItem()
     collections = RegistryItem()
+    media = RegistryItem()
     snippets = RegistryItem()
     streamfield_blocks = RegistryItem()
     django_models = RegistryItem()
@@ -21,6 +22,7 @@ class Registry:
         "documents",
         "images",
         "collections",
+        "media",
         "snippets",
         "django_models",
         "settings",
