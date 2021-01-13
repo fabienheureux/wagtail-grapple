@@ -153,7 +153,7 @@ def ImagesQuery():
 
         def resolve_images(self, info, **kwargs):
             """Returns all images in a public collection"""
-            qs = mdl.objects.filter(collection__view_restrictions__isnull=True)
+            qs = mdl.objects.filter(collection__view_restrictions__isnull=True).prefetch_related("collection")
             return resolve_queryset(qs, info, **kwargs)
 
         # Give name of the image type, used to generate mixins
