@@ -22,6 +22,16 @@ class BaseImageObjectType(graphene.ObjectType):
     aspect_ratio = graphene.Float(required=True)
     sizes = graphene.String(required=True)
     collection = graphene.Field(lambda: CollectionObjectType, required=True)
+    image_tags = graphene.List(graphene.String)
+
+    def resolve_image_tags(self, info, **kwargs):
+        """
+        Render the list of tags of the current image.
+        """
+        try:
+            return self.tags.all().values_list("name", flat=True)
+        except:
+            return []
 
     def resolve_url(self, info, **kwargs):
         """
