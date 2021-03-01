@@ -1,5 +1,7 @@
 import os
 import sys
+from unittest.mock import patch
+
 import wagtail_factories
 
 if sys.version_info >= (3, 7):
@@ -34,12 +36,14 @@ SCHEMA = locate(settings.GRAPHENE["SCHEMA"])
 class BaseGrappleTest(TestCase):
     def setUp(self):
         self.client = Client(SCHEMA)
+        self.home = HomePage.objects.first()
 
 
 class PagesTest(BaseGrappleTest):
     def setUp(self):
-        self.factory = RequestFactory()
         super().setUp()
+        self.factory = RequestFactory()
+        self.blog_post = BlogPageFactory(parent=self.home)
 
     def test_pages(self):
         query = """
@@ -60,13 +64,12 @@ class PagesTest(BaseGrappleTest):
         self.assertEquals(type(executed["data"]["pages"][0]), dict_type)
 
         pages_data = executed["data"]["pages"]
-        self.assertEquals(pages_data[0]["contentType"], "wagtailcore.Page")
-        self.assertEquals(pages_data[0]["pageType"], "Page")
-        self.assertEquals(pages_data[1]["contentType"], "home.HomePage")
-        self.assertEquals(pages_data[1]["pageType"], "HomePage")
+        self.assertEquals(pages_data[0]["contentType"], "home.HomePage")
+        self.assertEquals(pages_data[0]["pageType"], "HomePage")
+        self.assertEquals(pages_data[1]["contentType"], "home.BlogPage")
+        self.assertEquals(pages_data[1]["pageType"], "BlogPage")
 
-        pages = Page.objects.all()
-
+        pages = Page.objects.filter(depth__gt=1)
         self.assertEquals(len(executed["data"]["pages"]), pages.count())
 
     def test_pages_in_site(self):
@@ -92,6 +95,38 @@ class PagesTest(BaseGrappleTest):
 
         self.assertEquals(len(executed["data"]["pages"]), pages.count())
 
+    def test_pages_content_type_filter(self):
+        def query(content_type):
+            return (
+                """
+            {
+                pages(contentType: "%s") {
+                    id
+                    title
+                    contentType
+                    pageType
+                }
+            }
+            """
+                % content_type
+            )
+
+        results = self.client.execute(query("home.HomePage"))
+        data = results["data"]["pages"]
+        self.assertEquals(len(data), 1)
+        self.assertEqual(int(data[0]["id"]), self.home.id)
+
+        another_post = BlogPageFactory(parent=self.home)
+        results = self.client.execute(query("home.BlogPage"))
+        data = results["data"]["pages"]
+        self.assertEqual(len(data), 2)
+        self.assertListEqual(
+            [int(p["id"]) for p in data], [self.blog_post.id, another_post.id]
+        )
+
+        results = self.client.execute(query("bogus.ContentType"))
+        self.assertListEqual(results["data"]["pages"], [])
+
     def test_page(self):
         query = """
         query($id: Int) {
@@ -104,9 +139,7 @@ class PagesTest(BaseGrappleTest):
         }
         """
 
-        blog_page = BlogPageFactory(parent=HomePage.objects.first())
-
-        executed = self.client.execute(query, variables={"id": blog_page.id})
+        executed = self.client.execute(query, variables={"id": self.blog_post.id})
 
         self.assertEquals(type(executed["data"]), dict_type)
         self.assertEquals(type(executed["data"]["page"]), dict_type)
@@ -114,6 +147,71 @@ class PagesTest(BaseGrappleTest):
         page_data = executed["data"]["page"]
         self.assertEquals(page_data["contentType"], "home.BlogPage")
         self.assertEquals(page_data["parent"]["contentType"], "home.HomePage")
+
+
+class PageUrlPathTest(BaseGrappleTest):
+    def _query_by_path(self, path, in_site=False):
+        query = """
+        query($urlPath: String, $inSite: Boolean) {
+            page(urlPath: $urlPath, inSite: $inSite) {
+                id
+                url
+            }
+        }
+        """
+
+        executed = self.client.execute(
+            query, variables={"urlPath": path, "inSite": in_site}
+        )
+        return executed["data"].get("page")
+
+    def test_page_url_path_filter(self):
+        home_child = BlogPageFactory(slug="child", parent=self.home)
+        parent = BlogPageFactory(slug="parent", parent=self.home)
+
+        child = BlogPageFactory(slug="child", parent=parent)
+
+        page_data = self._query_by_path("/parent/child/")
+        self.assertEquals(int(page_data["id"]), child.id)
+
+        # query without trailing slash
+        page_data = self._query_by_path("/parent/child")
+        self.assertEquals(int(page_data["id"]), child.id)
+
+        # we have two pages with the same slug, however /home/child will
+        # be returned first because of its position in the tree
+        page_data = self._query_by_path("/child")
+        self.assertEquals(int(page_data["id"]), home_child.id)
+
+        page_data = self._query_by_path("/")
+        self.assertEquals(int(page_data["id"]), self.home.id)
+
+        page_data = self._query_by_path("foo/bar")
+        self.assertIsNone(page_data)
+
+    def test_with_multisite(self):
+        home_child = BlogPageFactory(slug="child", parent=self.home)
+
+        another_home = HomePage.objects.create(
+            title="Another home", slug="another-home", path="00010002", depth=2
+        )
+        another_site = wagtail_factories.SiteFactory(
+            site_name="Another site", root_page=another_home
+        )
+        another_child = BlogPageFactory(slug="child", parent=another_home)
+
+        # with multiple sites, only the first one will be returned
+        page_data = self._query_by_path("/child/")
+        self.assertEquals(int(page_data["id"]), home_child.id)
+
+        with patch(
+            "wagtail.core.models.Site.find_for_request", return_value=another_site
+        ):
+            page_data = self._query_by_path("/child/", in_site=True)
+            self.assertEquals(int(page_data["id"]), another_child.id)
+
+            page_data = self._query_by_path("/child", in_site=True)
+            self.assertEquals(int(page_data["id"]), another_child.id)
 
 
 class SitesTest(TestCase):
@@ -199,7 +297,9 @@ class DisableAutoCamelCaseTest(TestCase):
         self.assertEquals(type(executed["data"]["pages"][0]["title"]), str)
         self.assertEquals(type(executed["data"]["pages"][0]["url_path"]), str)
 
-        pages = Page.objects.all()
+        # note: not using .all() as the pages query returns all pages with a depth > 1. Wagtail will normally have
+        # only one page at depth 1 (RootPage). everything else lives under it.
+        pages = Page.objects.filter(depth__gt=1)
 
         self.assertEquals(len(executed["data"]["pages"]), pages.count())
 

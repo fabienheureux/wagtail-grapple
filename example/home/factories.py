@@ -11,6 +11,7 @@ from home.models import (
     Advert,
     Author,
     Person,
+    SimpleModel,
 )
 from wagtail.core import blocks
 
@@ -93,6 +94,7 @@ class PersonFactory(factory.DjangoModelFactory):
 
 
 class BlogPageFactory(wagtail_factories.PageFactory):
+    title = factory.Sequence(lambda n: f"Blog post {n}")
     date = datetime.date.today()
     author = factory.SubFactory("home.factories.AuthorPageFactory")
     body = wagtail_factories.StreamFieldFactory(
@@ -138,3 +140,8 @@ class AdvertFactory(factory.django.DjangoModelFactory):
 
     url = factory.Sequence(lambda n: f"Person {n}")
     text = fuzzy.FuzzyText()
+
+
+class SimpleModelFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = SimpleModel

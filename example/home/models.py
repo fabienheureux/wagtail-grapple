@@ -40,6 +40,11 @@ from grapple.models import (
 from home.blocks import StreamFieldBlock
 
 
+@register_singular_query_field("simpleModel")
+class SimpleModel(models.Model):
+    pass
+
+
 class HomePage(Page):
     pass
 
@@ -60,6 +65,7 @@ class BlogPageTag(TaggedItemBase):
 
 @register_singular_query_field("first_post")
 @register_paginated_query_field("blog_page")
+@register_query_field("post")
 class BlogPage(HeadlessPreviewMixin, Page):
     date = models.DateField("Post date")
     advert = models.ForeignKey(
@@ -69,8 +75,8 @@ class BlogPage(HeadlessPreviewMixin, Page):
         on_delete=models.SET_NULL,
         related_name="+",
     )
-    cover = models.ForeignKey(
-        "wagtailimages.Image",
+    hero_image = models.ForeignKey(
+        "images.CustomImage",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -98,7 +104,7 @@ class BlogPage(HeadlessPreviewMixin, Page):
 
     content_panels = Page.content_panels + [
         FieldPanel("date"),
-        ImageChooserPanel("cover"),
+        ImageChooserPanel("hero_image"),
         StreamFieldPanel("body"),
         FieldPanel("tags"),
         InlinePanel("related_links", label="Related links"),
@@ -136,7 +142,7 @@ class BlogPage(HeadlessPreviewMixin, Page):
             is_paginated_queryset=True,
         ),
         GraphQLSnippet("advert", "home.Advert"),
-        GraphQLImage("cover"),
+        GraphQLImage("hero_image"),
         GraphQLDocument("book_file"),
         GraphQLMedia("featured_media"),
         GraphQLForeignKey("copy", "home.BlogPage"),
